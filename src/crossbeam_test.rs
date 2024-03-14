@@ -1,35 +1,39 @@
-use std::sync::Arc;
-use image::imageops::FilterType;
 use crossbeam_channel::bounded;
-use std::path::PathBuf;
-
-fn process_image(image_path: &PathBuf, output_path: PathBuf) {
-    let img = image::open(image_path).expect("Failed to open image");
-    let resized_img = img.resize(1920, 1080, FilterType::Triangle);
-    resized_img.save(output_path).expect("Failed to save resized image");
-}
+use std::sync::{Arc, Mutex};
+use threadpool::ThreadPool;
 
 pub fn crossbeam_resize_image() {
-    let (snd, rcv) = bounded::<usize>(1); // Channel for task identifiers
-    let image_path = Arc::new(PathBuf::from("./test/majestic-mountain-peak-tranquil-winter-landscape-generated-by-ai.jpg"));
-    let iterations = 10;
+    let (snd, rcv) = bounded(10);
+    let img =
+        image::open("./test/majestic-mountain-peak-tranquil-winter-landscape-generated-by-ai.jpg")
+            .unwrap();
+    let img = Arc::new(Mutex::new(img));
+    let pool = ThreadPool::new(10);
 
-    crossbeam::scope(|s| {
-        // Producer thread
-        s.spawn(|_| {
-            for i in 0..iterations {
-                snd.send(i).unwrap(); // Send iteration number as task identifier
-            }
-            drop(snd);
+    for _ in 0..10 {
+        let snd_clone = snd.clone();
+        let img_clone = Arc::clone(&img);
+        pool.execute(move || {
+            let resized_img =
+                img_clone
+                    .lock()
+                    .unwrap()
+                    .resize(1920, 1080, image::imageops::FilterType::Triangle);
+            snd_clone.send(resized_img).unwrap();
         });
+    }
 
-        // Worker thread for processing the image
-        let image_path_clone = Arc::clone(&image_path);
-        s.spawn(move |_| {
-            for i in rcv.iter() {
-                let output_path = format!("./test/output/output_{}.avif", i);
-                process_image(&image_path_clone, PathBuf::from(output_path));
-            }
+    let saving_pool = ThreadPool::new(10);
+
+    for i in 0..10 {
+        let received_img = rcv.recv().unwrap();
+        let img_path = format!("./test/output/output_{}.avif", i);
+        let received_img_clone = received_img.clone();
+        saving_pool.execute(move || {
+            received_img_clone.save(img_path).unwrap();
         });
-    }).unwrap();
+    }
+
+    pool.join();
+    saving_pool.join();
 }

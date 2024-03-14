@@ -12,6 +12,9 @@ disruptor = "0.5.0"
 rayon = "1.9.0"
 crossbeam = "0.8.4"
 crossbeam-channel = "0.5.12"
+tokio = { version = "1.36.0", features = ["full"] }
+
+
 
 [profile.release-lto]
 inherits = "release"
